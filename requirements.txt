@@ -1,0 +1,4 @@
+langchain
+openai==1.2.0
+urllib3==1.26.17
+weaviate-client

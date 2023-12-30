@@ -1,0 +1,23 @@
+service: aws-python-chatbot-api
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: python3.9
+  region: us-east-1
+  ecr:
+    images:
+      chatbot_image:
+        path: ./
+  httpApi:
+      cors: true
+
+functions:
+  chatbot:
+    image:
+      name: chatbot_image
+    timeout: 60
+    events:
+      - httpApi:
+          path: /prompt
+          method: post
