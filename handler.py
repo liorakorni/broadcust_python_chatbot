@@ -6,8 +6,6 @@ from langchain.chat_models import ChatOpenAI
 # from langchain.vectorstores.weaviate import Weaviate
 from openai import OpenAI
 
-os.environ["OPENAI_API_KEY"] = "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"
-
 # auth_config = weaviate.AuthApiKey(api_key="m1r1tdtaVScNSUuygYakEhp7is4gBBBHfVxO")
 
 # WEAVIATE_URL = "https://chatbot-api-cluster-wjg8l18u.weaviate.network"
