@@ -18,8 +18,8 @@ from openai import OpenAI
 
 OpenAIClient = OpenAI(
     # defaults to os.environ.get("OPENAI_API_KEY")
-    api_key="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",
 )
+
 # vectorstore = Weaviate(client, "Paragraph", "content", attributes=["source"])
 llm = ChatOpenAI(temperature=0, model_name="gpt-4", streaming=True)
 # chain = load_qa_chain(llm, chain_type="stuff")
