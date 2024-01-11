@@ -1,4 +1,4 @@
-service: aws-python-chatbot-api
+service: python-chatbot-api
 frameworkVersion: '3'
 
 provider:
@@ -16,7 +16,7 @@ functions:
   chatbot:
     image:
       name: chatbot_image
-    timeout: 60
+    timeout: 120
     events:
       - httpApi:
           path: /prompt
