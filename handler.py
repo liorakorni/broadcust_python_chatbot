@@ -6,6 +6,11 @@ from langchain.chat_models import ChatOpenAI
 # from langchain.vectorstores.weaviate import Weaviate
 from openai import OpenAI
 
+from conf import open_api_api_key
+
+os.environ["OPENAI_API_KEY"] = open_api_api_key
+print('OPENAI_API_KEY: ', open_api_api_key)
+
 # auth_config = weaviate.AuthApiKey(api_key="m1r1tdtaVScNSUuygYakEhp7is4gBBBHfVxO")
 
 # WEAVIATE_URL = "https://chatbot-api-cluster-wjg8l18u.weaviate.network"
@@ -18,6 +23,7 @@ from openai import OpenAI
 
 OpenAIClient = OpenAI(
     # defaults to os.environ.get("OPENAI_API_KEY")
+    api_key=open_api_api_key
 )
 
 # vectorstore = Weaviate(client, "Paragraph", "content", attributes=["source"])
@@ -42,17 +48,21 @@ llm = ChatOpenAI(temperature=0, model_name="gpt-4", streaming=True)
 
 
 def chatbot(event, context):
-    print('event:', json.dumps(event))
-    # print('context function_name:', context.function_name)
-    # print('context log_group_name:', context.log_group_name)
+    print('event: ', json.dumps(event))
+
+    event_headers = event.get("headers", None)
+    event_origin = event_headers.get("origin", None)
+    if event_origin is not None and not event_origin.endswith(".broadcust.co.il"):
+        # If the Origin header is not from the allowed domain, deny the request
+        response = {
+            "statusCode": 403,
+            'error': "Invalid Origin"
+        }
+        print('origin is not allowed: ', event_origin)
+
+        return response
 
     event_body = event.get("body", None)
-    print('event_body reg:', event_body)
-
-    # event_body_json_dump = json.dumps(event_body)
-    # print('event_body json.dumps:', event_body_json_dump)
-    # event_body_json_load = json.loads(event_body)
-    # print('event_body json.loads:', event_body_json_load)
 
     if event_body is not None:
         event_body_json_load = json.loads(event_body)
@@ -61,14 +71,14 @@ def chatbot(event, context):
         question = event.get("question", None)
 
     msg = llm.invoke(question)
+    print('msg.content: ', msg.content)
 
     response = {
         "statusCode": 200,
         'status': "success",
         "body": msg.content,
         "headers": {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Credentials': True,
+            'Access-Control-Allow-Origin': 'https://broadcust.co.il',
         }
     }
     return response

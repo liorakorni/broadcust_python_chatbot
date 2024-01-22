@@ -16,7 +16,7 @@ functions:
   chatbot:
     image:
       name: chatbot_image
-    timeout: 120
+    timeout: 60
     events:
       - httpApi:
           path: /prompt
