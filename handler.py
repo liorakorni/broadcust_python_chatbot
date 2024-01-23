@@ -9,7 +9,6 @@ from openai import OpenAI
 from conf import open_api_api_key
 
 os.environ["OPENAI_API_KEY"] = open_api_api_key
-print('OPENAI_API_KEY: ', open_api_api_key)
 
 # auth_config = weaviate.AuthApiKey(api_key="m1r1tdtaVScNSUuygYakEhp7is4gBBBHfVxO")
 
