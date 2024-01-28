@@ -26,7 +26,7 @@ OpenAIClient = OpenAI(
 )
 
 # vectorstore = Weaviate(client, "Paragraph", "content", attributes=["source"])
-llm = ChatOpenAI(temperature=0, model_name="gpt-4", streaming=True)
+llm = ChatOpenAI(temperature=0.7, model_name="gpt-4", streaming=False)
 # chain = load_qa_chain(llm, chain_type="stuff")
 
 
@@ -51,7 +51,7 @@ def chatbot(event, context):
 
     event_headers = event.get("headers", None)
     event_origin = event_headers.get("origin", None)
-    if event_origin is not None and not event_origin.endswith(".broadcust.co.il"):
+    if event_origin is not None and not event_origin.endswith("broadcust.co.il"):
         # If the Origin header is not from the allowed domain, deny the request
         response = {
             "statusCode": 403,
