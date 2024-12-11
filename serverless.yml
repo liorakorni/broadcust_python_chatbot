@@ -1,9 +1,10 @@
 service: python-chatbot-api
-frameworkVersion: '3'
+frameworkVersion: '4'
 
 provider:
   name: aws
   runtime: python3.9
+  architecture: arm64  # Ensure this matches your Dockerfile base image
   region: us-east-1
   ecr:
     images:
@@ -16,7 +17,7 @@ functions:
   chatbot:
     image:
       name: chatbot_image
-    timeout: 60
+    timeout: 180
     events:
       - httpApi:
           path: /prompt
