@@ -14,7 +14,7 @@ OpenAIClient = OpenAI(
 llm = ChatOpenAI(temperature=0.7, model_name="gpt-4o", streaming=False)
 
 def chatbot(event, context):
-    """Original text-based chatbot - unchanged functionality"""
+    """Original text-based chatbot - clean and simple"""
     print('event: ', json.dumps(event))
 
     event_headers = event.get("headers", None)
@@ -51,7 +51,7 @@ def chatbot(event, context):
     return response
 
 def image_generator(event, context):
-    """New image generation API endpoint"""
+    """Dedicated image generation API endpoint"""
     print('image generation event: ', json.dumps(event))
 
     # Same origin validation as text chatbot

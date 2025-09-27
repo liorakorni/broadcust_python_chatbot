@@ -17,6 +17,8 @@ functions:
   chatbot:
     image:
       name: chatbot_image
+      command: 
+        - handler.chatbot
     timeout: 180
     events:
       - httpApi:
@@ -26,6 +28,8 @@ functions:
   image_generator:
     image:
       name: chatbot_image
+      command: 
+        - handler.image_generator
     timeout: 180
     events:
       - httpApi:
