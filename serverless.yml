@@ -22,3 +22,12 @@ functions:
       - httpApi:
           path: /prompt
           method: post
+  
+  image_generator:
+    image:
+      name: chatbot_image
+    timeout: 180
+    events:
+      - httpApi:
+          path: /generate-image
+          method: post
