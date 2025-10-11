@@ -35,3 +35,26 @@ functions:
       - httpApi:
           path: /generate-image
           method: post
+  
+  # COMMENTED OUT - NEW GEMINI ENDPOINTS (not production ready)
+  # gemini_image_generator:
+  #   image:
+  #     name: chatbot_image
+  #     command: 
+  #       - handler.gemini_image_generator
+  #   timeout: 180
+  #   events:
+  #     - httpApi:
+  #         path: /generate-image-gemini
+  #         method: post
+  
+  # nano_banana_generator:
+  #   image:
+  #     name: chatbot_image
+  #     command: 
+  #       - handler.nano_banana_generator
+  #   timeout: 180
+  #   events:
+  #     - httpApi:
+  #         path: /generate-image-nano-banana
+  #         method: post
