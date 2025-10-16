@@ -3,7 +3,7 @@ frameworkVersion: '4'
 
 provider:
   name: aws
-  runtime: python3.9
+  runtime: python3.10
   architecture: arm64  # Ensure this matches your Dockerfile base image
   region: us-east-1
   ecr:
@@ -36,25 +36,24 @@ functions:
           path: /generate-image
           method: post
   
-  # COMMENTED OUT - NEW GEMINI ENDPOINTS (not production ready)
-  # gemini_image_generator:
-  #   image:
-  #     name: chatbot_image
-  #     command: 
-  #       - handler.gemini_image_generator
-  #   timeout: 180
-  #   events:
-  #     - httpApi:
-  #         path: /generate-image-gemini
-  #         method: post
-  
-  # nano_banana_generator:
-  #   image:
-  #     name: chatbot_image
-  #     command: 
-  #       - handler.nano_banana_generator
-  #   timeout: 180
-  #   events:
-  #     - httpApi:
-  #         path: /generate-image-nano-banana
-  #         method: post
+  gemini_image_generator:
+    image:
+      name: chatbot_image
+      command: 
+        - handler.gemini_image_generator
+    timeout: 180
+    events:
+      - httpApi:
+          path: /generate-image-gemini
+          method: post
+
+  nano_banana_generator:
+    image:
+      name: chatbot_image
+      command:
+        - handler.nano_banana_generator
+    timeout: 180
+    events:
+      - httpApi:
+          path: /generate-image-nano-banana
+          method: post
