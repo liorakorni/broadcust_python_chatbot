@@ -4,4 +4,5 @@ openai
 urllib3==1.26.17
 weaviate-client
 google-generativeai>=0.8.0
+google-cloud-aiplatform>=1.38.0
 pillow

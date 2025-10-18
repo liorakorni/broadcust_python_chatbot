@@ -3,8 +3,10 @@ import os
 from langchain.chat_models import ChatOpenAI
 from openai import OpenAI
 import google.generativeai as genai
+from vertexai.preview.vision_models import ImageGenerationModel
+import vertexai
 
-from conf import open_api_api_key, gemini_api_key
+from conf import open_api_api_key, gemini_api_key, gcp_project_id, gcp_region
 
 os.environ["OPENAI_API_KEY"] = open_api_api_key
 
@@ -14,6 +16,29 @@ OpenAIClient = OpenAI(
 
 # Configure Gemini
 genai.configure(api_key=gemini_api_key)
+
+# Initialize Vertex AI
+try:
+    # Use environment variables first, then fall back to conf.py
+    GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", gcp_project_id)
+    GCP_REGION = os.environ.get("GCP_REGION", gcp_region)
+    
+    # For AWS Lambda, explicitly set credentials path
+    # This tells Google Cloud SDK where to find the service account key
+    credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", 
+                                     "/var/task/vertex-ai-key.json")
+    
+    if os.path.exists(credentials_path):
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+        print(f"Using GCP credentials from: {credentials_path}")
+    else:
+        print(f"Warning: GCP credentials file not found at {credentials_path}")
+    
+    # Initialize Vertex AI - will use the credentials file
+    vertexai.init(project=GCP_PROJECT_ID, location=GCP_REGION)
+    print(f"Vertex AI initialized with project: {GCP_PROJECT_ID}, region: {GCP_REGION}")
+except Exception as e:
+    print(f"Warning: Vertex AI initialization failed: {e}")
 
 llm = ChatOpenAI(temperature=0.7, model_name="gpt-4o", streaming=False)
 
@@ -165,37 +190,34 @@ def gemini_image_generator(event, context):
         }
 
     try:
-        # Generate image using Gemini with text-to-image capability
-        print(f'Generating image with Gemini for prompt: {prompt}')
+        # Generate image using Vertex AI Imagen
+        print(f'Generating image with Vertex AI Imagen for prompt: {prompt}')
 
-        # Use GenerativeModel for image generation
-        model = genai.GenerativeModel('gemini-1.5-flash')
-
-        # Generate content with image output
-        response_gemini = model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
-                candidate_count=1,
-                max_output_tokens=2048,
-            )
+        # Use Imagen 3 model through Vertex AI
+        imagen_model = ImageGenerationModel.from_pretrained("imagen-3.0-generate-001")
+        
+        # Generate image
+        images = imagen_model.generate_images(
+            prompt=prompt,
+            number_of_images=1,
+            aspect_ratio="1:1",
+            safety_filter_level="block_some",
+            person_generation="allow_adult",
         )
 
-        # For now, Gemini primarily does text generation
-        # Image generation through Gemini API may require different setup
-        # Let's return a placeholder response
+        # Get the generated image and convert to base64
         import base64
         import io
-        from PIL import Image
-
-        # Create a simple placeholder image with text
-        img = Image.new('RGB', (512, 512), color=(73, 109, 137))
-
+        
+        # images[0] is an Image object with _pil_image attribute
+        generated_image = images[0]
+        
         img_byte_arr = io.BytesIO()
-        img.save(img_byte_arr, format='PNG')
+        generated_image._pil_image.save(img_byte_arr, format='PNG')
         img_byte_arr = img_byte_arr.getvalue()
         image_base64 = base64.b64encode(img_byte_arr).decode('utf-8')
 
-        print(f'Gemini endpoint called (Note: Native image gen may need Vertex AI)')
+        print(f'Generated image with Vertex AI Imagen successfully')
 
         response = {
             "statusCode": 200,
@@ -203,8 +225,7 @@ def gemini_image_generator(event, context):
             "body": json.dumps({
                 "image_data": f"data:image/png;base64,{image_base64}",
                 "prompt": prompt,
-                "model": "gemini-1.5-flash",
-                "note": "This endpoint requires Vertex AI setup for native image generation"
+                "model": "imagen-3.0-vertex-ai"
             }),
             "headers": {
                 'Access-Control-Allow-Origin': 'https://broadcust.co.il',
@@ -261,33 +282,37 @@ def nano_banana_generator(event, context):
         }
 
     try:
-        # Generate image using Gemini 2.5 Flash (Nano Banana model)
-        print(f'Generating image with Gemini Nano Banana for prompt: {prompt}')
+        # Generate image using Vertex AI Imagen (Nano Banana style)
+        print(f'Generating Nano Banana style image with Vertex AI for prompt: {prompt}')
 
-        # Use Gemini 2.5 Flash for image generation (Nano Banana)
-        model = genai.GenerativeModel("gemini-2.0-flash-exp")
-
-        # Generate image using the model
-        result = model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
-                response_modalities=["image"],
-                candidate_count=1,
-            )
+        # Use Imagen model through Vertex AI
+        # Note: "Nano Banana" is a marketing name, actual model is Imagen
+        imagen_model = ImageGenerationModel.from_pretrained("imagegeneration@006")
+        
+        # Add style modifier for more realistic/3D figurine style (Nano Banana aesthetic)
+        enhanced_prompt = f"{prompt}, high quality, detailed, professional 3D render style"
+        
+        # Generate image
+        images = imagen_model.generate_images(
+            prompt=enhanced_prompt,
+            number_of_images=1,
+            aspect_ratio="1:1",
+            safety_filter_level="block_some",
+            person_generation="allow_adult",
         )
 
-        # Get the generated image
-        # Note: Gemini returns image data, not URLs. You may need to upload to storage
-        # For now, we'll return base64 encoded image data
+        # Get the generated image and convert to base64
         import base64
         import io
+        
+        generated_image = images[0]
+        
+        img_byte_arr = io.BytesIO()
+        generated_image._pil_image.save(img_byte_arr, format='PNG')
+        img_byte_arr = img_byte_arr.getvalue()
+        image_base64 = base64.b64encode(img_byte_arr).decode('utf-8')
 
-        # Extract image from result
-        image_part = result.parts[0]
-        image_data = image_part.inline_data.data
-        image_base64 = base64.b64encode(image_data).decode('utf-8')
-
-        print(f'Generated image with Gemini Nano Banana successfully')
+        print(f'Generated Nano Banana style image with Vertex AI successfully')
 
         response = {
             "statusCode": 200,
@@ -295,7 +320,8 @@ def nano_banana_generator(event, context):
             "body": json.dumps({
                 "image_data": f"data:image/png;base64,{image_base64}",
                 "prompt": prompt,
-                "model": "gemini-2.0-flash-exp-nano-banana"
+                "enhanced_prompt": enhanced_prompt,
+                "model": "imagen-vertex-ai-nano-banana"
             }),
             "headers": {
                 'Access-Control-Allow-Origin': 'https://broadcust.co.il',

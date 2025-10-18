@@ -6,6 +6,11 @@ provider:
   runtime: python3.10
   architecture: arm64  # Ensure this matches your Dockerfile base image
   region: us-east-1
+  environment:
+    # Google Cloud / Vertex AI Configuration
+    GCP_PROJECT_ID: "YOUR_GCP_PROJECT_ID"  # Replace with your actual GCP project ID
+    GCP_REGION: "us-central1"
+    GOOGLE_APPLICATION_CREDENTIALS: "/var/task/vertex-ai-key.json"
   ecr:
     images:
       chatbot_image:
