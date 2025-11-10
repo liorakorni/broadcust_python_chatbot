@@ -1,5 +1,6 @@
 langchain
 langchain_community
+langchain_openai
 openai
 urllib3==1.26.17
 weaviate-client

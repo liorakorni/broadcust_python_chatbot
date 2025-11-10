@@ -8,7 +8,7 @@ provider:
   region: us-east-1
   environment:
     # Google Cloud / Vertex AI Configuration
-    GCP_PROJECT_ID: "YOUR_GCP_PROJECT_ID"  # Replace with your actual GCP project ID
+    GCP_PROJECT_ID: "gen-lang-client-0517916478"
     GCP_REGION: "us-central1"
     GOOGLE_APPLICATION_CREDENTIALS: "/var/task/vertex-ai-key.json"
   ecr:

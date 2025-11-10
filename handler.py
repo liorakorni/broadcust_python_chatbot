@@ -1,6 +1,6 @@
 import json
 import os
-from langchain.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
 from openai import OpenAI
 import google.generativeai as genai
 from vertexai.preview.vision_models import ImageGenerationModel
