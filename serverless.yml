@@ -62,3 +62,14 @@ functions:
       - httpApi:
           path: /generate-image-nano-banana
           method: post
+
+  gemini_chat:
+    image:
+      name: chatbot_image
+      command:
+        - handler.gemini_chat
+    timeout: 180
+    events:
+      - httpApi:
+          path: /prompt-gemini
+          method: post

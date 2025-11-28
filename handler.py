@@ -342,3 +342,73 @@ def nano_banana_generator(event, context):
         }
 
     return response
+
+def gemini_chat(event, context):
+    """Gemini-based text chatbot"""
+    print('gemini chat event: ', json.dumps(event))
+
+    event_headers = event.get("headers", None)
+    event_origin = event_headers.get("origin", None)
+    
+    # Validate origin and set appropriate CORS header
+    allowed_origin = 'https://broadcust.co.il'  # default
+    if event_origin is not None:
+        if event_origin.endswith("broadcust.co.il"):
+            allowed_origin = event_origin  # Use the actual origin (stg, prod, etc.)
+        else:
+            # If the Origin header is not from the allowed domain, deny the request
+            response = {
+                "statusCode": 403,
+                'error': "Invalid Origin"
+            }
+            print('origin is not allowed: ', event_origin)
+            return response
+
+    event_body = event.get("body", None)
+
+    if event_body is not None:
+        event_body_json_load = json.loads(event_body)
+        prompt = event_body_json_load.get("prompt", None)
+    else:
+        prompt = event.get("prompt", None)
+
+    if not prompt:
+        return {
+            "statusCode": 400,
+            "status": "error",
+            "body": json.dumps({"error": "No prompt provided"}),
+            "headers": {
+                'Access-Control-Allow-Origin': allowed_origin,
+                'Content-Type': 'application/json'
+            }
+        }
+
+    try:
+        # Use Gemini for chat
+        print(f'Processing prompt with Gemini: {prompt}')
+        model = genai.GenerativeModel('gemini-3-flash')
+        response_gemini = model.generate_content(prompt)
+        
+        print('gemini response: ', response_gemini.text)
+
+        response = {
+            "statusCode": 200,
+            'status': "success",
+            "body": response_gemini.text,
+            "headers": {
+                'Access-Control-Allow-Origin': allowed_origin,
+            }
+        }
+    except Exception as e:
+        print(f"Error with Gemini chat: {str(e)}")
+        response = {
+            "statusCode": 500,
+            "status": "error",
+            "body": json.dumps({"error": f"Failed to process chat: {str(e)}"}),
+            "headers": {
+                'Access-Control-Allow-Origin': allowed_origin,
+                'Content-Type': 'application/json'
+            }
+        }
+
+    return response
