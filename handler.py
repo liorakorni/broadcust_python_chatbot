@@ -350,6 +350,21 @@ def gemini_chat(event, context):
     event_headers = event.get("headers", None)
     event_origin = event_headers.get("origin", None)
     
+    # Validate API Key (if configured)
+    expected_api_key = os.environ.get("API_SECRET_KEY")
+    if expected_api_key:  # Only validate if API key is configured
+        provided_api_key = event_headers.get("x-api-key") if event_headers else None
+        if not provided_api_key or provided_api_key != expected_api_key:
+            print('Invalid or missing API key')
+            return {
+                "statusCode": 403,
+                "body": json.dumps({"error": "Invalid or missing API key"}),
+                "headers": {
+                    'Access-Control-Allow-Origin': '*',
+                    'Content-Type': 'application/json'
+                }
+            }
+    
     # Validate origin and set appropriate CORS header
     allowed_origin = 'https://broadcust.co.il'  # default
     if event_origin is not None:
@@ -386,27 +401,151 @@ def gemini_chat(event, context):
     try:
         # Use Gemini for chat
         print(f'Processing prompt with Gemini: {prompt}')
-        model = genai.GenerativeModel('gemini-3-flash')
-        response_gemini = model.generate_content(prompt)
         
-        print('gemini response: ', response_gemini.text)
+        # List available models for debugging
+        try:
+            available_models = [m.name for m in genai.list_models()]
+            print(f'Available models: {available_models[:10]}')  # Print first 10
+        except Exception as e:
+            print(f'Could not list models: {e}')
+        
+        # Configure generation settings for longer responses
+        generation_config = {
+            "max_output_tokens": 8192,  # Maximum tokens for output
+            "temperature": 0.3,  # Lower temperature for more consistent, factual responses
+        }
+        
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        response_gemini = model.generate_content(
+            prompt,
+            generation_config=generation_config
+        )
+        
+        # Check if response was blocked or incomplete
+        print(f'Gemini finish_reason: {response_gemini.candidates[0].finish_reason}')
+        print(f'Gemini safety_ratings: {response_gemini.candidates[0].safety_ratings}')
+        
+        # Get the full response text
+        response_text = response_gemini.text
+        print(f'Gemini response length: {len(response_text)} characters')
+        print(f'Gemini response preview: {response_text[:200]}...')
 
         response = {
             "statusCode": 200,
             'status': "success",
-            "body": response_gemini.text,
+            "body": response_text,
             "headers": {
                 'Access-Control-Allow-Origin': allowed_origin,
+                'Content-Type': 'text/plain; charset=utf-8'
             }
         }
     except Exception as e:
         print(f"Error with Gemini chat: {str(e)}")
+        print(f"Error type: {type(e).__name__}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
         response = {
             "statusCode": 500,
             "status": "error",
             "body": json.dumps({"error": f"Failed to process chat: {str(e)}"}),
             "headers": {
                 'Access-Control-Allow-Origin': allowed_origin,
+                'Content-Type': 'application/json'
+            }
+        }
+
+    return response
+
+def gemini_pro_chat(event, context):
+    """Gemini Pro (most advanced) - Uses Lambda Function URL for longer timeout"""
+    print('gemini pro chat event: ', json.dumps(event))
+
+    event_headers = event.get("headers", None)
+    
+    # Validate API Key (if configured)
+    expected_api_key = os.environ.get("API_SECRET_KEY")
+    if expected_api_key:  # Only validate if API key is configured
+        provided_api_key = event_headers.get("x-api-key") if event_headers else None
+        if not provided_api_key or provided_api_key != expected_api_key:
+            print('Invalid or missing API key')
+            return {
+                "statusCode": 403,
+                "body": json.dumps({"error": "Invalid or missing API key"}),
+                "headers": {
+                    # CORS handled by Lambda Function URL config (serverless.yml)
+                    'Content-Type': 'application/json'
+                }
+            }
+    
+    # Note: Origin validation is handled by Lambda Function URL CORS config in serverless.yml
+    # No need to validate origin in code - AWS does it based on allowedOrigins
+
+    event_body = event.get("body", None)
+
+    if event_body is not None:
+        event_body_json_load = json.loads(event_body)
+        prompt = event_body_json_load.get("prompt", None)
+    else:
+        prompt = event.get("prompt", None)
+
+    if not prompt:
+        return {
+            "statusCode": 400,
+            "status": "error",
+            "body": json.dumps({"error": "No prompt provided"}),
+            "headers": {
+                # CORS handled by Lambda Function URL config
+                'Content-Type': 'application/json'
+            }
+        }
+
+    try:
+        # Use Gemini Pro (most advanced model)
+        print(f'Processing prompt with Gemini Pro: {prompt}')
+        
+        # Configure generation settings for longer responses
+        generation_config = {
+            "max_output_tokens": 8192,  # Maximum tokens for output
+            "temperature": 0.3,  # Lower temperature for more consistent, factual responses
+        }
+        
+        # Try Gemini 3 Pro Preview (if available)
+        model = genai.GenerativeModel('gemini-3-pro-preview')
+        response_gemini = model.generate_content(
+            prompt,
+            generation_config=generation_config
+        )
+        
+        # Check if response was blocked or incomplete
+        print(f'Gemini Pro finish_reason: {response_gemini.candidates[0].finish_reason}')
+        print(f'Gemini Pro safety_ratings: {response_gemini.candidates[0].safety_ratings}')
+        
+        # Get the full response text
+        response_text = response_gemini.text
+        print(f'Gemini Pro response length: {len(response_text)} characters')
+        print(f'Gemini Pro response preview: {response_text[:200]}...')
+
+        response = {
+            "statusCode": 200,
+            'status': "success",
+            "body": response_text,
+            "headers": {
+                # CORS is handled by Lambda Function URL config (serverless.yml)
+                # Don't set Access-Control-Allow-Origin here to avoid conflicts
+                'Content-Type': 'text/plain; charset=utf-8'
+            }
+        }
+    except Exception as e:
+        print(f"Error with Gemini Pro chat: {str(e)}")
+        print(f"Error type: {type(e).__name__}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
+        response = {
+            "statusCode": 500,
+            "status": "error",
+            "body": json.dumps({"error": f"Failed to process chat: {str(e)}"}),
+            "headers": {
+                # CORS is handled by Lambda Function URL config (serverless.yml)
                 'Content-Type': 'application/json'
             }
         }

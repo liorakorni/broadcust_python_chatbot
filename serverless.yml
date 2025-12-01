@@ -11,12 +11,17 @@ provider:
     GCP_PROJECT_ID: "gen-lang-client-0517916478"
     GCP_REGION: "us-central1"
     GOOGLE_APPLICATION_CREDENTIALS: "/var/task/vertex-ai-key.json"
+    # API Security (optional - set this to enable API key validation)
+    API_SECRET_KEY: ${env:API_SECRET_KEY, ''}
   ecr:
     images:
       chatbot_image:
         path: ./
   httpApi:
       cors: true
+      throttle:
+        rateLimit: 10        # Max requests per second per IP
+        burstLimit: 20       # Max burst capacity
 
 functions:
   chatbot:
@@ -73,3 +78,41 @@ functions:
       - httpApi:
           path: /prompt-gemini
           method: post
+
+  gemini_pro_chat:
+    image:
+      name: chatbot_image
+      command:
+        - handler.gemini_pro_chat
+    timeout: 900  # 15 minutes - max Lambda timeout
+    url:
+      cors:
+        allowedOrigins:
+          - https://broadcust.co.il
+          - https://stg.broadcust.co.il
+        allowedHeaders:
+          - Content-Type
+          - X-API-Key
+        allowedMethods:
+          - POST  # OPTIONS is automatically handled by Lambda Function URL
+        allowCredentials: true
+
+resources:
+  Resources:
+    # CloudWatch Alarm for high Lambda invocations
+    GeminiChatHighUsageAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: ${self:service}-gemini-chat-high-usage
+        AlarmDescription: Alert when Gemini chat endpoint has high usage
+        MetricName: Invocations
+        Namespace: AWS/Lambda
+        Statistic: Sum
+        Period: 300  # 5 minutes
+        EvaluationPeriods: 1
+        Threshold: 100  # Alert if more than 100 invocations in 5 minutes
+        ComparisonOperator: GreaterThanThreshold
+        Dimensions:
+          - Name: FunctionName
+            Value: ${self:service}-${sls:stage}-gemini_chat
+        TreatMissingData: notBreaching
