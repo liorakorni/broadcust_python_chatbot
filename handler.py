@@ -1,12 +1,14 @@
 import json
 import os
+import re
+import boto3
 from langchain_openai import ChatOpenAI
 from openai import OpenAI
 import google.generativeai as genai
 from vertexai.preview.vision_models import ImageGenerationModel
 import vertexai
 
-from conf import open_api_api_key, gemini_api_key, gcp_project_id, gcp_region
+from conf import open_api_api_key, gemini_api_key, gcp_project_id, gcp_region, api_secret_key
 
 os.environ["OPENAI_API_KEY"] = open_api_api_key
 
@@ -351,10 +353,9 @@ def gemini_chat(event, context):
     event_origin = event_headers.get("origin", None)
     
     # Validate API Key (if configured)
-    expected_api_key = os.environ.get("API_SECRET_KEY")
-    if expected_api_key:  # Only validate if API key is configured
+    if api_secret_key and api_secret_key != "your-secret-key-here":  # Only validate if API key is configured
         provided_api_key = event_headers.get("x-api-key") if event_headers else None
-        if not provided_api_key or provided_api_key != expected_api_key:
+        if not provided_api_key or provided_api_key != api_secret_key:
             print('Invalid or missing API key')
             return {
                 "statusCode": 403,
@@ -463,10 +464,9 @@ def gemini_pro_chat(event, context):
     event_headers = event.get("headers", None)
     
     # Validate API Key (if configured)
-    expected_api_key = os.environ.get("API_SECRET_KEY")
-    if expected_api_key:  # Only validate if API key is configured
+    if api_secret_key and api_secret_key != "your-secret-key-here":  # Only validate if API key is configured
         provided_api_key = event_headers.get("x-api-key") if event_headers else None
-        if not provided_api_key or provided_api_key != expected_api_key:
+        if not provided_api_key or provided_api_key != api_secret_key:
             print('Invalid or missing API key')
             return {
                 "statusCode": 403,
@@ -551,3 +551,137 @@ def gemini_pro_chat(event, context):
         }
 
     return response
+
+def add_user_profile(event, context):
+    """Add user profile to DynamoDB - Server-to-server endpoint with API key auth"""
+    print('add user profile event: ', json.dumps(event))
+
+    event_headers = event.get("headers", None)
+    
+    # Validate API Key (required for this endpoint)
+    if not api_secret_key or api_secret_key == "your-secret-key-here":
+        print('ERROR: API_SECRET_KEY not configured in conf.py')
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": "Server configuration error"}),
+            "headers": {'Content-Type': 'application/json'}
+        }
+    
+    provided_api_key = event_headers.get("x-api-key") if event_headers else None
+    if not provided_api_key or provided_api_key != api_secret_key:
+        print('Invalid or missing API key')
+        return {
+            "statusCode": 403,
+            "body": json.dumps({"error": "Invalid or missing API key"}),
+            "headers": {'Content-Type': 'application/json'}
+        }
+
+    # Parse request body
+    event_body = event.get("body", None)
+    if event_body is not None:
+        try:
+            body_data = json.loads(event_body)
+        except json.JSONDecodeError:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Invalid JSON in request body"}),
+                "headers": {'Content-Type': 'application/json'}
+            }
+    else:
+        body_data = event
+
+    # Validate required fields
+    required_fields = ['UserID', 'Mobile', 'Email', 'RawBizChar', 'OptBizChar']
+    missing_fields = [field for field in required_fields if not body_data.get(field)]
+    
+    if missing_fields:
+        return {
+            "statusCode": 400,
+            "body": json.dumps({
+                "error": "Missing required fields",
+                "missing_fields": missing_fields
+            }),
+            "headers": {'Content-Type': 'application/json'}
+        }
+
+    # Extract and validate fields
+    user_id = body_data.get('UserID').strip()
+    mobile = body_data.get('Mobile').strip()
+    email = body_data.get('Email').strip()
+    raw_biz_char = body_data.get('RawBizChar').strip()
+    opt_biz_char = body_data.get('OptBizChar').strip()
+
+    # Validate email format
+    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if not re.match(email_pattern, email):
+        return {
+            "statusCode": 400,
+            "body": json.dumps({
+                "error": "Invalid email format",
+                "field": "Email"
+            }),
+            "headers": {'Content-Type': 'application/json'}
+        }
+
+    # Validate mobile format (basic validation - must contain digits)
+    mobile_pattern = r'^[\d\s\-\+\(\)]+$'
+    if not re.match(mobile_pattern, mobile) or len(re.sub(r'\D', '', mobile)) < 9:
+        return {
+            "statusCode": 400,
+            "body": json.dumps({
+                "error": "Invalid mobile format - must contain at least 9 digits",
+                "field": "Mobile"
+            }),
+            "headers": {'Content-Type': 'application/json'}
+        }
+
+    try:
+        # Initialize DynamoDB client
+        dynamodb = boto3.resource('dynamodb')
+        table_name = os.environ.get('USER_PROFILES_TABLE')
+        
+        if not table_name:
+            print('ERROR: USER_PROFILES_TABLE environment variable not set')
+            return {
+                "statusCode": 500,
+                "body": json.dumps({"error": "Server configuration error"}),
+                "headers": {'Content-Type': 'application/json'}
+            }
+        
+        table = dynamodb.Table(table_name)
+        
+        # Put item to DynamoDB (overwrites if exists)
+        table.put_item(
+            Item={
+                'UserID': user_id,
+                'Mobile': mobile,
+                'Email': email,
+                'RawBizChar': raw_biz_char,
+                'OptBizChar': opt_biz_char
+            }
+        )
+        
+        print(f'Successfully added user profile for UserID: {user_id}')
+        
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "status": "success",
+                "message": "User profile added successfully",
+                "userId": user_id
+            }),
+            "headers": {'Content-Type': 'application/json'}
+        }
+        
+    except Exception as e:
+        print(f"Error storing user profile: {str(e)}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({
+                "error": "Failed to store user profile",
+                "details": str(e)
+            }),
+            "headers": {'Content-Type': 'application/json'}
+        }

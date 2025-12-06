@@ -13,6 +13,19 @@ provider:
     GOOGLE_APPLICATION_CREDENTIALS: "/var/task/vertex-ai-key.json"
     # API Security (optional - set this to enable API key validation)
     API_SECRET_KEY: ${env:API_SECRET_KEY, ''}
+    # DynamoDB Configuration
+    USER_PROFILES_TABLE: ${self:service}-${sls:stage}-user-profiles
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+          Resource:
+            - !GetAtt UserProfilesTable.Arn
   ecr:
     images:
       chatbot_image:
@@ -97,8 +110,37 @@ functions:
           - POST  # OPTIONS is automatically handled by Lambda Function URL
         allowCredentials: true
 
+  add_user_profile:
+    image:
+      name: chatbot_image
+      command:
+        - handler.add_user_profile
+    timeout: 30
+    events:
+      - httpApi:
+          path: /add-user-profile
+          method: post
+
 resources:
   Resources:
+    # DynamoDB Table for User Profiles
+    UserProfilesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:service}-${sls:stage}-user-profiles
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: UserID
+            AttributeType: S
+        KeySchema:
+          - AttributeName: UserID
+            KeyType: HASH
+        Tags:
+          - Key: Service
+            Value: ${self:service}
+          - Key: Stage
+            Value: ${sls:stage}
+    
     # CloudWatch Alarm for high Lambda invocations
     GeminiChatHighUsageAlarm:
       Type: AWS::CloudWatch::Alarm
