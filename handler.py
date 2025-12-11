@@ -2,6 +2,7 @@ import json
 import os
 import re
 import boto3
+from datetime import datetime
 from langchain_openai import ChatOpenAI
 from openai import OpenAI
 import google.generativeai as genai
@@ -650,10 +651,14 @@ def add_user_profile(event, context):
         
         table = dynamodb.Table(table_name)
         
-        # Put item to DynamoDB (overwrites if exists)
+        # Generate timestamp (ISO 8601 format with 'Z' suffix for UTC)
+        timestamp = datetime.utcnow().isoformat() + 'Z'
+        
+        # Put item to DynamoDB (creates new record with timestamp, no overwrite)
         table.put_item(
             Item={
                 'UserID': user_id,
+                'Timestamp': timestamp,
                 'Mobile': mobile,
                 'Email': email,
                 'RawBizChar': raw_biz_char,
@@ -661,14 +666,15 @@ def add_user_profile(event, context):
             }
         )
         
-        print(f'Successfully added user profile for UserID: {user_id}')
+        print(f'Successfully added user profile for UserID: {user_id} at {timestamp}')
         
         return {
             "statusCode": 200,
             "body": json.dumps({
                 "status": "success",
                 "message": "User profile added successfully",
-                "userId": user_id
+                "userId": user_id,
+                "timestamp": timestamp
             }),
             "headers": {'Content-Type': 'application/json'}
         }
@@ -684,4 +690,476 @@ def add_user_profile(event, context):
                 "details": str(e)
             }),
             "headers": {'Content-Type': 'application/json'}
+        }
+
+def get_user_profiles(event, context):
+    """Query all profile records for a specific user - Server-to-server endpoint with API key auth"""
+    print('get user profiles event: ', json.dumps(event))
+
+    event_headers = event.get("headers", None)
+    
+    # Validate Server API Key (required for this endpoint)
+    if not server_api_key or server_api_key == "your-secret-key-here":
+        print('ERROR: server_api_key not configured in conf.py')
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": "Server configuration error"}),
+            "headers": {'Content-Type': 'application/json'}
+        }
+    
+    provided_api_key = event_headers.get("x-api-key") if event_headers else None
+    if not provided_api_key or provided_api_key != server_api_key:
+        print('Invalid or missing API key')
+        return {
+            "statusCode": 403,
+            "body": json.dumps({"error": "Invalid or missing API key"}),
+            "headers": {'Content-Type': 'application/json'}
+        }
+
+    # Extract UserID from query string parameters
+    query_params = event.get("queryStringParameters", {})
+    if not query_params:
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"error": "Missing query parameters"}),
+            "headers": {'Content-Type': 'application/json'}
+        }
+    
+    user_id = query_params.get("UserID")
+    if not user_id:
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"error": "Missing required parameter: UserID"}),
+            "headers": {'Content-Type': 'application/json'}
+        }
+
+    try:
+        # Initialize DynamoDB client
+        dynamodb = boto3.resource('dynamodb')
+        table_name = os.environ.get('USER_PROFILES_TABLE')
+        
+        if not table_name:
+            print('ERROR: USER_PROFILES_TABLE environment variable not set')
+            return {
+                "statusCode": 500,
+                "body": json.dumps({"error": "Server configuration error"}),
+                "headers": {'Content-Type': 'application/json'}
+            }
+        
+        table = dynamodb.Table(table_name)
+        
+        # Query DynamoDB for all records with the given UserID
+        # ScanIndexForward=False returns items in descending order (newest first)
+        from boto3.dynamodb.conditions import Key
+        
+        response = table.query(
+            KeyConditionExpression=Key('UserID').eq(user_id),
+            ScanIndexForward=False  # Descending order (newest first)
+        )
+        
+        items = response.get('Items', [])
+        print(f'Found {len(items)} records for UserID: {user_id}')
+        
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "status": "success",
+                "userId": user_id,
+                "count": len(items),
+                "records": items
+            }, default=str),  # default=str to handle datetime serialization
+            "headers": {'Content-Type': 'application/json'}
+        }
+        
+    except Exception as e:
+        print(f"Error querying user profiles: {str(e)}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({
+                "error": "Failed to query user profiles",
+                "details": str(e)
+            }),
+            "headers": {'Content-Type': 'application/json'}
+        }
+
+def list_system_prompts(event, context):
+    """List all system prompts - No authentication, CORS only"""
+    print('list system prompts event: ', json.dumps(event))
+
+    # Validate origin for CORS
+    event_headers = event.get("headers", None)
+    event_origin = event_headers.get("origin", None) if event_headers else None
+    
+    allowed_origin = 'https://broadcust.co.il'  # default
+    if event_origin is not None and event_origin.endswith("broadcust.co.il"):
+        allowed_origin = event_origin
+    elif event_origin is not None:
+        # Invalid origin
+        return {
+            "statusCode": 403,
+            "body": json.dumps({"error": "Invalid Origin"}),
+            "headers": {
+                'Access-Control-Allow-Origin': '*',
+                'Content-Type': 'application/json'
+            }
+        }
+
+    try:
+        # Initialize DynamoDB client
+        dynamodb = boto3.resource('dynamodb')
+        table_name = os.environ.get('SYSTEM_PROMPTS_TABLE')
+        
+        if not table_name:
+            print('ERROR: SYSTEM_PROMPTS_TABLE environment variable not set')
+            return {
+                "statusCode": 500,
+                "body": json.dumps({"error": "Server configuration error"}),
+                "headers": {'Content-Type': 'application/json'}
+            }
+        
+        table = dynamodb.Table(table_name)
+        
+        # Scan table to get all prompts
+        response = table.scan()
+        items = response.get('Items', [])
+        
+        print(f'Found {len(items)} system prompts')
+        
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "status": "success",
+                "count": len(items),
+                "prompts": items
+            }, default=str),
+            "headers": {
+                'Access-Control-Allow-Origin': allowed_origin,
+                'Content-Type': 'application/json'
+            }
+        }
+        
+    except Exception as e:
+        print(f"Error listing system prompts: {str(e)}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({
+                "error": "Failed to list system prompts",
+                "details": str(e)
+            }),
+            "headers": {
+                'Access-Control-Allow-Origin': allowed_origin,
+                'Content-Type': 'application/json'
+            }
+        }
+
+def get_system_prompt(event, context):
+    """Get a specific system prompt by name - No authentication, CORS only"""
+    print('get system prompt event: ', json.dumps(event))
+
+    # Validate origin for CORS
+    event_headers = event.get("headers", None)
+    event_origin = event_headers.get("origin", None) if event_headers else None
+    
+    allowed_origin = 'https://broadcust.co.il'  # default
+    if event_origin is not None and event_origin.endswith("broadcust.co.il"):
+        allowed_origin = event_origin
+    elif event_origin is not None:
+        # Invalid origin
+        return {
+            "statusCode": 403,
+            "body": json.dumps({"error": "Invalid Origin"}),
+            "headers": {
+                'Access-Control-Allow-Origin': '*',
+                'Content-Type': 'application/json'
+            }
+        }
+
+    # Extract name from query string parameters
+    query_params = event.get("queryStringParameters", {})
+    if not query_params:
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"error": "Missing query parameters"}),
+            "headers": {
+                'Access-Control-Allow-Origin': allowed_origin,
+                'Content-Type': 'application/json'
+            }
+        }
+    
+    name = query_params.get("name")
+    if not name:
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"error": "Missing required parameter: name"}),
+            "headers": {
+                'Access-Control-Allow-Origin': allowed_origin,
+                'Content-Type': 'application/json'
+            }
+        }
+
+    try:
+        # Initialize DynamoDB client
+        dynamodb = boto3.resource('dynamodb')
+        table_name = os.environ.get('SYSTEM_PROMPTS_TABLE')
+        
+        if not table_name:
+            print('ERROR: SYSTEM_PROMPTS_TABLE environment variable not set')
+            return {
+                "statusCode": 500,
+                "body": json.dumps({"error": "Server configuration error"}),
+                "headers": {'Content-Type': 'application/json'}
+            }
+        
+        table = dynamodb.Table(table_name)
+        
+        # Get item from DynamoDB
+        response = table.get_item(Key={'name': name})
+        
+        if 'Item' not in response:
+            return {
+                "statusCode": 404,
+                "body": json.dumps({"error": f"System prompt '{name}' not found"}),
+                "headers": {
+                    'Access-Control-Allow-Origin': allowed_origin,
+                    'Content-Type': 'application/json'
+                }
+            }
+        
+        item = response['Item']
+        print(f'Found system prompt: {name}')
+        
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "status": "success",
+                "prompt": item
+            }, default=str),
+            "headers": {
+                'Access-Control-Allow-Origin': allowed_origin,
+                'Content-Type': 'application/json'
+            }
+        }
+        
+    except Exception as e:
+        print(f"Error getting system prompt: {str(e)}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({
+                "error": "Failed to get system prompt",
+                "details": str(e)
+            }),
+            "headers": {
+                'Access-Control-Allow-Origin': allowed_origin,
+                'Content-Type': 'application/json'
+            }
+        }
+
+def save_system_prompt(event, context):
+    """Create or update a system prompt - No authentication, CORS only"""
+    print('save system prompt event: ', json.dumps(event))
+
+    # Validate origin for CORS
+    event_headers = event.get("headers", None)
+    event_origin = event_headers.get("origin", None) if event_headers else None
+    
+    allowed_origin = 'https://broadcust.co.il'  # default
+    if event_origin is not None and event_origin.endswith("broadcust.co.il"):
+        allowed_origin = event_origin
+    elif event_origin is not None:
+        # Invalid origin
+        return {
+            "statusCode": 403,
+            "body": json.dumps({"error": "Invalid Origin"}),
+            "headers": {
+                'Access-Control-Allow-Origin': '*',
+                'Content-Type': 'application/json'
+            }
+        }
+
+    # Parse request body
+    event_body = event.get("body", None)
+    if event_body is not None:
+        try:
+            body_data = json.loads(event_body)
+        except json.JSONDecodeError:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Invalid JSON in request body"}),
+                "headers": {
+                    'Access-Control-Allow-Origin': allowed_origin,
+                    'Content-Type': 'application/json'
+                }
+            }
+    else:
+        body_data = event
+
+    # Validate required fields
+    name = body_data.get('name')
+    prompt = body_data.get('prompt')
+    
+    if not name or not prompt:
+        return {
+            "statusCode": 400,
+            "body": json.dumps({
+                "error": "Missing required fields",
+                "required": ["name", "prompt"]
+            }),
+            "headers": {
+                'Access-Control-Allow-Origin': allowed_origin,
+                'Content-Type': 'application/json'
+            }
+        }
+
+    try:
+        # Initialize DynamoDB client
+        dynamodb = boto3.resource('dynamodb')
+        table_name = os.environ.get('SYSTEM_PROMPTS_TABLE')
+        
+        if not table_name:
+            print('ERROR: SYSTEM_PROMPTS_TABLE environment variable not set')
+            return {
+                "statusCode": 500,
+                "body": json.dumps({"error": "Server configuration error"}),
+                "headers": {'Content-Type': 'application/json'}
+            }
+        
+        table = dynamodb.Table(table_name)
+        
+        # Put item to DynamoDB (creates or updates)
+        table.put_item(
+            Item={
+                'name': name.strip(),
+                'prompt': prompt.strip()
+            }
+        )
+        
+        print(f'Successfully saved system prompt: {name}')
+        
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "status": "success",
+                "message": "System prompt saved successfully",
+                "name": name
+            }),
+            "headers": {
+                'Access-Control-Allow-Origin': allowed_origin,
+                'Content-Type': 'application/json'
+            }
+        }
+        
+    except Exception as e:
+        print(f"Error saving system prompt: {str(e)}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({
+                "error": "Failed to save system prompt",
+                "details": str(e)
+            }),
+            "headers": {
+                'Access-Control-Allow-Origin': allowed_origin,
+                'Content-Type': 'application/json'
+            }
+        }
+
+def delete_system_prompt(event, context):
+    """Delete a system prompt by name - No authentication, CORS only"""
+    print('delete system prompt event: ', json.dumps(event))
+
+    # Validate origin for CORS
+    event_headers = event.get("headers", None)
+    event_origin = event_headers.get("origin", None) if event_headers else None
+    
+    allowed_origin = 'https://broadcust.co.il'  # default
+    if event_origin is not None and event_origin.endswith("broadcust.co.il"):
+        allowed_origin = event_origin
+    elif event_origin is not None:
+        # Invalid origin
+        return {
+            "statusCode": 403,
+            "body": json.dumps({"error": "Invalid Origin"}),
+            "headers": {
+                'Access-Control-Allow-Origin': '*',
+                'Content-Type': 'application/json'
+            }
+        }
+
+    # Extract name from query string parameters
+    query_params = event.get("queryStringParameters", {})
+    if not query_params:
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"error": "Missing query parameters"}),
+            "headers": {
+                'Access-Control-Allow-Origin': allowed_origin,
+                'Content-Type': 'application/json'
+            }
+        }
+    
+    name = query_params.get("name")
+    if not name:
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"error": "Missing required parameter: name"}),
+            "headers": {
+                'Access-Control-Allow-Origin': allowed_origin,
+                'Content-Type': 'application/json'
+            }
+        }
+
+    try:
+        # Initialize DynamoDB client
+        dynamodb = boto3.resource('dynamodb')
+        table_name = os.environ.get('SYSTEM_PROMPTS_TABLE')
+        
+        if not table_name:
+            print('ERROR: SYSTEM_PROMPTS_TABLE environment variable not set')
+            return {
+                "statusCode": 500,
+                "body": json.dumps({"error": "Server configuration error"}),
+                "headers": {'Content-Type': 'application/json'}
+            }
+        
+        table = dynamodb.Table(table_name)
+        
+        # Delete item from DynamoDB
+        table.delete_item(Key={'name': name})
+        
+        print(f'Successfully deleted system prompt: {name}')
+        
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "status": "success",
+                "message": "System prompt deleted successfully",
+                "name": name
+            }),
+            "headers": {
+                'Access-Control-Allow-Origin': allowed_origin,
+                'Content-Type': 'application/json'
+            }
+        }
+        
+    except Exception as e:
+        print(f"Error deleting system prompt: {str(e)}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({
+                "error": "Failed to delete system prompt",
+                "details": str(e)
+            }),
+            "headers": {
+                'Access-Control-Allow-Origin': allowed_origin,
+                'Content-Type': 'application/json'
+            }
         }

@@ -15,6 +15,7 @@ provider:
     API_SECRET_KEY: ${env:API_SECRET_KEY, ''}
     # DynamoDB Configuration
     USER_PROFILES_TABLE: ${self:service}-${sls:stage}-user-profiles
+    SYSTEM_PROMPTS_TABLE: ${self:service}-${sls:stage}-system-prompts
   iam:
     role:
       statements:
@@ -24,8 +25,11 @@ provider:
             - dynamodb:GetItem
             - dynamodb:UpdateItem
             - dynamodb:DeleteItem
+            - dynamodb:Query
+            - dynamodb:Scan
           Resource:
             - !GetAtt UserProfilesTable.Arn
+            - !GetAtt SystemPromptsTable.Arn
   ecr:
     images:
       chatbot_image:
@@ -121,6 +125,61 @@ functions:
           path: /add-user-profile
           method: post
 
+  get_user_profiles:
+    image:
+      name: chatbot_image
+      command:
+        - handler.get_user_profiles
+    timeout: 30
+    events:
+      - httpApi:
+          path: /get-user-profiles
+          method: get
+
+  list_system_prompts:
+    image:
+      name: chatbot_image
+      command:
+        - handler.list_system_prompts
+    timeout: 30
+    events:
+      - httpApi:
+          path: /system-prompts
+          method: get
+
+  get_system_prompt:
+    image:
+      name: chatbot_image
+      command:
+        - handler.get_system_prompt
+    timeout: 30
+    events:
+      - httpApi:
+          path: /system-prompt
+          method: get
+
+  save_system_prompt:
+    image:
+      name: chatbot_image
+      command:
+        - handler.save_system_prompt
+    timeout: 30
+    events:
+      - httpApi:
+          path: /system-prompt
+          method: post
+
+  delete_system_prompt:
+    image:
+      name: chatbot_image
+      command:
+        - handler.delete_system_prompt
+    timeout: 30
+    events:
+      - httpApi:
+          path: /system-prompt
+          method: delete
+
 resources:
   Resources:
     # DynamoDB Table for User Profiles
@@ -132,8 +191,30 @@ resources:
         AttributeDefinitions:
           - AttributeName: UserID
             AttributeType: S
+          - AttributeName: Timestamp
+            AttributeType: S
         KeySchema:
           - AttributeName: UserID
+            KeyType: HASH
+          - AttributeName: Timestamp
+            KeyType: RANGE
+        Tags:
+          - Key: Service
+            Value: ${self:service}
+          - Key: Stage
+            Value: ${sls:stage}
+    
+    # DynamoDB Table for System Prompts
+    SystemPromptsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:service}-${sls:stage}-system-prompts
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: name
+            AttributeType: S
+        KeySchema:
+          - AttributeName: name
             KeyType: HASH
         Tags:
           - Key: Service

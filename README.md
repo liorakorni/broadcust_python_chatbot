@@ -1,103 +1,179 @@
-# broadcust_python_chatbot
+# Broadcust Python Chatbot API
 
-<!--
-title: 'AWS Simple HTTP Endpoint example in Python'
-description: 'This template demonstrates how to make a simple HTTP API with Python running on AWS Lambda and API Gateway using the Serverless Framework.'
-layout: Doc
-framework: v3
-platform: AWS
-language: python
-authorLink: 'https://github.com/serverless'
-authorName: 'Serverless, inc.'
-authorAvatar: 'https://avatars1.githubusercontent.com/u/13742415?s=200&v=4'
--->
+A comprehensive serverless API providing AI chat capabilities, image generation, user profile management, and system prompt storage using AWS Lambda, API Gateway, and DynamoDB.
 
-# Serverless Framework Python HTTP API on AWS
+## Features
 
-This template demonstrates how to make a simple HTTP API with Python running on AWS Lambda and API Gateway using the Serverless Framework.
+- 🤖 **Multiple AI Chat Models**
+  - OpenAI GPT-4o
+  - Google Gemini 2.0 Flash
+  - Google Gemini 3 Pro Preview (no timeout limits)
 
-This template does not include any kind of persistence (database). For more advanced examples, check out the [serverless/examples repository](https://github.com/serverless/examples/)  which includes DynamoDB, Mongo, Fauna and other examples.
+- 🎨 **Image Generation**
+  - OpenAI DALL-E 3
+  - Google Imagen 3.0
+  - Nano Banana (3D style)
 
-## Usage
+- 👤 **User Profile Management**
+  - Historical tracking with timestamps
+  - Query user profile history
+
+- 📝 **System Prompts CRUD**
+  - Store and manage reusable AI prompts
+  - Full create, read, update, delete operations
+
+## Quick Start
+
+### Prerequisites
+- Python 3.10+
+- AWS Account
+- Serverless Framework
+- Docker (for containerized deployment)
+
+### Configuration
+
+1. Configure API keys in `conf.py`:
+```python
+open_api_api_key = "sk-..."
+gemini_api_key = "AIza..."
+server_api_key = "your-server-key"
+```
+
+2. Set up Google Cloud credentials:
+   - Place your `vertex-ai-key.json` in the project root
+   - Update GCP project ID in `conf.py`
 
 ### Deployment
 
-```
-$ serverless deploy
-```
-
-After deploying, you should see output similar to:
-
 ```bash
-Deploying aws-python-http-api-project to stage dev (us-east-1)
-
-✔ Service deployed to stack aws-python-http-api-project-dev (140s)
-
-endpoint: GET - https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/
-functions:
-  hello: aws-python-http-api-project-dev-hello (2.3 kB)
+serverless deploy
 ```
 
-_Note_: In current form, after deployment, your API is public and can be invoked by anyone. For production deployments, you might want to configure an authorizer. For details on how to do that, refer to [http event docs](https://www.serverless.com/framework/docs/providers/aws/events/apigateway/).
+After deployment, note the API endpoint URLs and Lambda Function URLs from the output.
 
-### Invocation
+## API Endpoints
 
-After successful deployment, you can call the created application via HTTP:
+The API provides 12 endpoints organized into 4 categories:
 
+### Chat (3 endpoints)
+- `POST /prompt` - OpenAI GPT-4o chat
+- `POST /prompt-gemini` - Gemini 2.0 Flash chat
+- `POST [Function URL]` - Gemini 3 Pro chat (no timeout)
+
+### Image Generation (3 endpoints)
+- `POST /generate-image` - DALL-E 3
+- `POST /generate-image-gemini` - Imagen 3.0
+- `POST /generate-image-nano-banana` - Nano Banana style
+
+### User Profiles (2 endpoints)
+- `POST /add-user-profile` - Add profile with timestamp
+- `GET /get-user-profiles?UserID=xxx` - Get user history
+
+### System Prompts (4 endpoints)
+- `GET /system-prompts` - List all prompts
+- `GET /system-prompt?name=xxx` - Get specific prompt
+- `POST /system-prompt` - Create/update prompt
+- `DELETE /system-prompt?name=xxx` - Delete prompt
+
+## 📚 Full API Documentation
+
+**See [API_DOCUMENTATION.md](./API_DOCUMENTATION.md) for complete details** including:
+- Request/response examples
+- Authentication requirements
+- Error handling
+- Code examples in JavaScript, Python, and cURL
+
+## Quick Examples
+
+### Chat Request
 ```bash
-curl https://xxxxxxx.execute-api.us-east-1.amazonaws.com/
+curl -X POST https://your-api-url/prompt-gemini \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"What is AI?"}'
 ```
 
-Which should result in response similar to the following (removed `input` content for brevity):
-
-```json
-{
-  "message": "Go Serverless v3.0! Your function executed successfully!",
-  "input": {
-    ...
-  }
-}
-```
-
-### Local development
-
-You can invoke your function locally by using the following command:
-
+### Add User Profile (Requires API Key)
 ```bash
-serverless invoke local --function hello
+curl -X POST https://your-api-url/add-user-profile \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: facb80df-8f14-42c7-b87a-37a05ae926ee" \
+  -d '{
+    "UserID": "user123",
+    "Mobile": "+1-555-123-4567",
+    "Email": "user@example.com",
+    "RawBizChar": "value1",
+    "OptBizChar": "value2"
+  }'
 ```
 
-Which should result in response similar to the following:
-
-```
-{
-  "statusCode": 200,
-  "body": "{\n  \"message\": \"Go Serverless v3.0! Your function executed successfully!\",\n  \"input\": \"\"\n}"
-}
-```
-
-Alternatively, it is also possible to emulate API Gateway and Lambda locally by using `serverless-offline` plugin. In order to do that, execute the following command:
-
+### Create System Prompt
 ```bash
-serverless plugin install -n serverless-offline
+curl -X POST https://your-api-url/system-prompt \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "greeting",
+    "prompt": "You are a helpful assistant"
+  }'
 ```
 
-It will add the `serverless-offline` plugin to `devDependencies` in `package.json` file as well as will add it to `plugins` in `serverless.yml`.
+## Architecture
 
-After installation, you can start local emulation with:
+- **Compute:** AWS Lambda (Python 3.10, Docker containers)
+- **API Gateway:** HTTP API with CORS and rate limiting
+- **Storage:** DynamoDB (2 tables)
+  - User Profiles (composite key: UserID + Timestamp)
+  - System Prompts (primary key: name)
+- **AI Services:** 
+  - OpenAI API (GPT-4o, DALL-E 3)
+  - Google Gemini API (2.0 Flash, 3 Pro)
+  - Google Vertex AI (Imagen 3.0)
 
-```
-serverless offline
-```
+## Security
 
-To learn more about the capabilities of `serverless-offline`, please refer to its [GitHub repository](https://github.com/dherault/serverless-offline).
+- **CORS Protection:** Only `broadcust.co.il` and `stg.broadcust.co.il` origins allowed
+- **Rate Limiting:** 10 requests/second per IP
+- **API Keys:** Optional for browser endpoints, required for server-to-server
+- **Environment Variables:** Sensitive data stored in `conf.py` (not in git)
 
-### Bundling dependencies
+## DynamoDB Tables
 
-In case you would like to include 3rd party dependencies, you will need to use a plugin called `serverless-python-requirements`. You can set it up by running the following command:
+### User Profiles Table
+- Tracks user profile changes over time
+- Composite key allows multiple records per user
+- Sorted by timestamp (newest first)
 
-```bash
-serverless plugin install -n serverless-python-requirements
-```
+### System Prompts Table
+- Stores reusable AI prompts
+- Simple key-value structure
+- CRUD operations available via API
 
-Running the above will automatically add `serverless-python-requirements` to `plugins` section in your `serverless.yml` file and add it as a `devDependency` to `package.json` file. The `package.json` file will be automatically created if it doesn't exist beforehand. Now you will be able to add your dependencies to `requirements.txt` file (`Pipfile` and `pyproject.toml` is also supported but requires additional configuration) and they will be automatically injected to Lambda package during build process. For more details about the plugin's configuration, please refer to [official documentation](https://github.com/UnitedIncome/serverless-python-requirements).
+## Configuration Files
+
+- `serverless.yml` - Infrastructure and function definitions
+- `conf.py` - API keys and configuration (not in git)
+- `handler.py` - Lambda function handlers
+- `requirements.txt` - Python dependencies
+- `Dockerfile` - Container configuration
+
+## Monitoring
+
+- **CloudWatch Logs:** All Lambda invocations logged
+- **CloudWatch Alarms:** High usage alerts configured
+- **Metrics:** Available in AWS Console
+
+## Cost Optimization
+
+- **DynamoDB:** PAY_PER_REQUEST billing (only pay for what you use)
+- **Lambda:** Charged per invocation and execution time
+- **Rate Limiting:** Prevents excessive usage
+- **Container Reuse:** Warm Lambda containers reduce cold starts
+
+## Development Notes
+
+See additional documentation:
+- [AWS_LAMBDA_DEPLOYMENT.md](./AWS_LAMBDA_DEPLOYMENT.md) - Deployment guide
+- [VERTEX_AI_SETUP.md](./VERTEX_AI_SETUP.md) - Google Cloud setup
+
+## Support
+
+For issues or questions, refer to the API documentation or check CloudWatch logs for error details.
