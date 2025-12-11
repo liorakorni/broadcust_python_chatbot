@@ -14,7 +14,7 @@ provider:
     # API Security (optional - set this to enable API key validation)
     API_SECRET_KEY: ${env:API_SECRET_KEY, ''}
     # DynamoDB Configuration
-    USER_PROFILES_TABLE: ${self:service}-${sls:stage}-user-profiles
+    USER_PROFILES_TABLE: ${self:service}-${sls:stage}-user-specs
     SYSTEM_PROMPTS_TABLE: ${self:service}-${sls:stage}-system-prompts
   iam:
     role:
@@ -186,7 +186,7 @@ resources:
     UserProfilesTable:
       Type: AWS::DynamoDB::Table
       Properties:
-        TableName: ${self:service}-${sls:stage}-user-profiles
+        TableName: ${self:service}-${sls:stage}-user-specs
         BillingMode: PAY_PER_REQUEST
         AttributeDefinitions:
           - AttributeName: UserID
