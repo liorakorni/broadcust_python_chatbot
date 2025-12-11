@@ -20,5 +20,3 @@ conf.py
 # Serverless directories
 .serverless
 /vertex-ai-key.json
-/VERTEX_AI_SETUP.md
-/AWS_LAMBDA_DEPLOYMENT.md
