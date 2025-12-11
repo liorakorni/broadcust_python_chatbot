@@ -8,7 +8,7 @@ import google.generativeai as genai
 from vertexai.preview.vision_models import ImageGenerationModel
 import vertexai
 
-from conf import open_api_api_key, gemini_api_key, gcp_project_id, gcp_region, api_secret_key
+from conf import open_api_api_key, gemini_api_key, gcp_project_id, gcp_region, api_secret_key, server_api_key
 
 os.environ["OPENAI_API_KEY"] = open_api_api_key
 
@@ -352,8 +352,8 @@ def gemini_chat(event, context):
     event_headers = event.get("headers", None)
     event_origin = event_headers.get("origin", None)
     
-    # Validate API Key (if configured)
-    if api_secret_key and api_secret_key != "your-secret-key-here":  # Only validate if API key is configured
+    # Validate API Key (optional - only if configured in conf.py)
+    if api_secret_key:  # Only validate if API key is configured
         provided_api_key = event_headers.get("x-api-key") if event_headers else None
         if not provided_api_key or provided_api_key != api_secret_key:
             print('Invalid or missing API key')
@@ -463,8 +463,8 @@ def gemini_pro_chat(event, context):
 
     event_headers = event.get("headers", None)
     
-    # Validate API Key (if configured)
-    if api_secret_key and api_secret_key != "your-secret-key-here":  # Only validate if API key is configured
+    # Validate API Key (optional - only if configured in conf.py)
+    if api_secret_key:  # Only validate if API key is configured
         provided_api_key = event_headers.get("x-api-key") if event_headers else None
         if not provided_api_key or provided_api_key != api_secret_key:
             print('Invalid or missing API key')
@@ -558,9 +558,9 @@ def add_user_profile(event, context):
 
     event_headers = event.get("headers", None)
     
-    # Validate API Key (required for this endpoint)
-    if not api_secret_key or api_secret_key == "your-secret-key-here":
-        print('ERROR: API_SECRET_KEY not configured in conf.py')
+    # Validate Server API Key (required for this endpoint)
+    if not server_api_key or server_api_key == "your-secret-key-here":
+        print('ERROR: server_api_key not configured in conf.py')
         return {
             "statusCode": 500,
             "body": json.dumps({"error": "Server configuration error"}),
@@ -568,7 +568,7 @@ def add_user_profile(event, context):
         }
     
     provided_api_key = event_headers.get("x-api-key") if event_headers else None
-    if not provided_api_key or provided_api_key != api_secret_key:
+    if not provided_api_key or provided_api_key != server_api_key:
         print('Invalid or missing API key')
         return {
             "statusCode": 403,
