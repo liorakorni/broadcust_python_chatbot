@@ -3,15 +3,38 @@ frameworkVersion: '4'
 
 provider:
   name: aws
-  runtime: python3.9
+  runtime: python3.10
   architecture: arm64  # Ensure this matches your Dockerfile base image
   region: us-east-1
+  environment:
+    # Google Cloud / Vertex AI Configuration
+    GCP_PROJECT_ID: "gen-lang-client-0517916478"
+    GCP_REGION: "us-central1"
+    GOOGLE_APPLICATION_CREDENTIALS: "/var/task/vertex-ai-key.json"
+    # API Security (optional - set this to enable API key validation)
+    API_SECRET_KEY: ${env:API_SECRET_KEY, ''}
+    # DynamoDB Configuration
+    USER_PROFILES_TABLE: ${self:service}-${sls:stage}-user-profiles
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+          Resource:
+            - !GetAtt UserProfilesTable.Arn
   ecr:
     images:
       chatbot_image:
         path: ./
   httpApi:
       cors: true
+      throttle:
+        rateLimit: 10        # Max requests per second per IP
+        burstLimit: 20       # Max burst capacity
 
 functions:
   chatbot:
@@ -35,3 +58,103 @@ functions:
       - httpApi:
           path: /generate-image
           method: post
+  
+  gemini_image_generator:
+    image:
+      name: chatbot_image
+      command: 
+        - handler.gemini_image_generator
+    timeout: 180
+    events:
+      - httpApi:
+          path: /generate-image-gemini
+          method: post
+
+  nano_banana_generator:
+    image:
+      name: chatbot_image
+      command:
+        - handler.nano_banana_generator
+    timeout: 180
+    events:
+      - httpApi:
+          path: /generate-image-nano-banana
+          method: post
+
+  gemini_chat:
+    image:
+      name: chatbot_image
+      command:
+        - handler.gemini_chat
+    timeout: 180
+    events:
+      - httpApi:
+          path: /prompt-gemini
+          method: post
+
+  gemini_pro_chat:
+    image:
+      name: chatbot_image
+      command:
+        - handler.gemini_pro_chat
+    timeout: 900  # 15 minutes - max Lambda timeout
+    url:
+      cors:
+        allowedOrigins:
+          - https://broadcust.co.il
+          - https://stg.broadcust.co.il
+        allowedHeaders:
+          - Content-Type
+          - X-API-Key
+        allowedMethods:
+          - POST  # OPTIONS is automatically handled by Lambda Function URL
+        allowCredentials: true
+
+  add_user_profile:
+    image:
+      name: chatbot_image
+      command:
+        - handler.add_user_profile
+    timeout: 30
+    events:
+      - httpApi:
+          path: /add-user-profile
+          method: post
+
+resources:
+  Resources:
+    # DynamoDB Table for User Profiles
+    UserProfilesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:service}-${sls:stage}-user-profiles
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: UserID
+            AttributeType: S
+        KeySchema:
+          - AttributeName: UserID
+            KeyType: HASH
+        Tags:
+          - Key: Service
+            Value: ${self:service}
+          - Key: Stage
+            Value: ${sls:stage}
+    
+    # CloudWatch Alarm for high Lambda invocations
+    GeminiChatHighUsageAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: ${self:service}-gemini-chat-high-usage
+        AlarmDescription: Alert when Gemini chat endpoint has high usage
+        MetricName: Invocations
+        Namespace: AWS/Lambda
+        Statistic: Sum
+        Period: 300  # 5 minutes
+        EvaluationPeriods: 1
+        Threshold: 100  # Alert if more than 100 invocations in 5 minutes
+        ComparisonOperator: GreaterThanThreshold
+        Dimensions:
+          - Name: FunctionName
+            Value: ${self:service}-${sls:stage}-gemini_chat
+        TreatMissingData: notBreaching
