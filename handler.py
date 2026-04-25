@@ -685,3 +685,76 @@ def add_user_profile(event, context):
             }),
             "headers": {'Content-Type': 'application/json'}
         }
+
+def get_user_profile(event, context):
+    """Get user profile from DynamoDB by UserID."""
+    print('get user profile event: ', json.dumps(event))
+
+    query_params = event.get("queryStringParameters") or {}
+    user_id = (query_params.get("UserID") or "").strip()
+
+    if not user_id:
+        return {
+            "statusCode": 400,
+            "body": json.dumps({
+                "error": "Missing required query parameter",
+                "field": "UserID"
+            }),
+            "headers": {'Content-Type': 'application/json'}
+        }
+
+    try:
+        dynamodb = boto3.resource('dynamodb')
+        table_name = os.environ.get('USER_PROFILES_TABLE')
+
+        if not table_name:
+            print('ERROR: USER_PROFILES_TABLE environment variable not set')
+            return {
+                "statusCode": 500,
+                "body": json.dumps({"error": "Server configuration error"}),
+                "headers": {'Content-Type': 'application/json'}
+            }
+
+        print(f'Looking up UserID="{user_id}" (len={len(user_id)}) in table="{table_name}" region="{dynamodb.meta.client.meta.region_name}"')
+
+        table = dynamodb.Table(table_name)
+
+        result = table.get_item(Key={'UserID': user_id})
+        item = result.get('Item')
+        print(f'GetItem response metadata: {result.get("ResponseMetadata", {}).get("HTTPStatusCode")} consumed={result.get("ConsumedCapacity")} item_found={item is not None}')
+
+        if not item:
+            print(f'User profile not found for UserID="{user_id}" in table="{table_name}"')
+            return {
+                "statusCode": 404,
+                "body": json.dumps({
+                    "status": "not_found",
+                    "message": "User profile not found",
+                    "userId": user_id
+                }),
+                "headers": {'Content-Type': 'application/json'}
+            }
+
+        print(f'Successfully fetched user profile for UserID: {user_id}')
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "status": "success",
+                "userProfile": item
+            }),
+            "headers": {'Content-Type': 'application/json'}
+        }
+
+    except Exception as e:
+        print(f"Error fetching user profile: {str(e)}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({
+                "error": "Failed to fetch user profile",
+                "details": str(e)
+            }),
+            "headers": {'Content-Type': 'application/json'}
+        }

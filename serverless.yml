@@ -121,6 +121,17 @@ functions:
           path: /add-user-profile
           method: post
 
+  get_user_profile:
+    image:
+      name: chatbot_image
+      command:
+        - handler.get_user_profile
+    timeout: 30
+    events:
+      - httpApi:
+          path: /get-user-profile
+          method: get
+
 resources:
   Resources:
     # DynamoDB Table for User Profiles
@@ -145,7 +156,7 @@ resources:
     GeminiChatHighUsageAlarm:
       Type: AWS::CloudWatch::Alarm
       Properties:
-        AlarmName: ${self:service}-gemini-chat-high-usage
+        AlarmName: ${self:service}-${sls:stage}-gemini-chat-high-usage
         AlarmDescription: Alert when Gemini chat endpoint has high usage
         MetricName: Invocations
         Namespace: AWS/Lambda
