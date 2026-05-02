@@ -1,5 +1,7 @@
 # broadcust_python_chatbot
 
+User profile enrichment (`/add-user-profile`, `/backfill-user-biz-profile`): see **[USER_PROFILE_API.md](USER_PROFILE_API.md)** for when to call each endpoint and `curl` examples.
+
 <!--
 title: 'AWS Simple HTTP Endpoint example in Python'
 description: 'This template demonstrates how to make a simple HTTP API with Python running on AWS Lambda and API Gateway using the Serverless Framework.'

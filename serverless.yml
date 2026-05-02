@@ -115,10 +115,21 @@ functions:
       name: chatbot_image
       command:
         - handler.add_user_profile
-    timeout: 30
+    timeout: 120
     events:
       - httpApi:
           path: /add-user-profile
+          method: post
+
+  backfill_user_biz_profile:
+    image:
+      name: chatbot_image
+      command:
+        - handler.backfill_user_biz_profile
+    timeout: 120
+    events:
+      - httpApi:
+          path: /backfill-user-biz-profile
           method: post
 
   get_user_profile:

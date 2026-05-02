@@ -2,6 +2,8 @@ import json
 import os
 import re
 import boto3
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from langchain_openai import ChatOpenAI
 from openai import OpenAI
 import google.generativeai as genai
@@ -43,6 +45,100 @@ except Exception as e:
     print(f"Warning: Vertex AI initialization failed: {e}")
 
 llm = ChatOpenAI(temperature=0.7, model_name="gpt-4o", streaming=False)
+
+# Stable text model for profile enrichment (Gemini 2.0 Flash is deprecated — see Gemini API docs)
+GEMINI_PROFILE_MODEL = "gemini-2.5-flash"
+
+PROMPT_1_TEMPLATE = """{raw_biz_char}
+
+אתה קופירייטר בכיר במשרד פרסום. בהמשך המידע למעלה הוא מידע גולמי מלקוח חדש שמילא "שאלון אפיון עסק":
+
+בצע ניתוח והבנת העסק ("כרטיס ביקור אסטרטגי") כתוב סיכום קצר (עד 4-5 משפטים) שמתאר את מהות העסק על בסיס הטופס. התייחס לנקודות הבאות:
+
+מי העסק: (הסיפור האישי/הוותק/הבעלים).
+
+מה אנחנו מספקים: (השירותים העיקריים).
+
+למה דווקא אנחנו: (הבידול, היתרונות וה-USP).
+
+הטון והסגנון: (איך הלקוח רוצה שנדבר - גוף ראשון/רשמי/חברי).
+
+מידע חשוב שהודגש במידע וחשוב להתייחס אליו בפרסומים ובתוכן השיווקי שיוצא
+
+שים לב: אם יש הנחיות מיוחדות ליצירת התוכן או מילים שאסור להשתמש בהן - ציין זאת בצורה מפורשת
+
+
+את התוצר של המשימה עליך להוציא באופן קריא, מקצועי וברור כיוון שהוא ישלח ללקוח להמשך אישור. אל תוסיף כוכביות מיותרות כגון ** בתחילת או בסוף טקסטים ואל תוסיף גם סולמיות (התו #) בתחילת או בסיום משפט.
+חשוב מאוד: פלט נקי בלבד! אל תכתוב שום מילת הקדמה, נימוס, אישור או סיכום (לדוגמה, אל תכתוב 'בוודאי, הנה התוצר'). התחל מיד בטקסט עצמו וסיים מיד בסופו, מכיוון שהטקסט מיועד להזנה אוטומטית למסד נתונים (Database)."""
+
+PROMPT_2_TEMPLATE = """{raw_biz_char}
+
+
+עבור ההנחיות הנ"ל צור עבורי 10 כותרות לתוכן שיווקי אשר יוצג בעיקר כפוסטים בפייסבוק
+תן משקל גבוה להנחיות העסק בכל הקשור לסגנון כתיבה.
+עבור כל כותרת , רשום כותרת משנה שתלווה אותו בת כשני משפטים.
+חשוב מאוד: פלט נקי בלבד! אל תכתוב שום מילת הקדמה, נימוס, אישור או סיכום (לדוגמה, אל תכתוב 'בוודאי, הנה התוצר'). התחל מיד בטקסט עצמו וסיים מיד בסופו, מכיוון שהטקסט מיועד להזנה אוטומטית למסד נתונים (Database).
+"""
+
+
+def gemini_generate_profile_text(prompt: str) -> str:
+    generation_config = {
+        "max_output_tokens": 8192,
+        "temperature": 0.3,
+    }
+    model = genai.GenerativeModel(GEMINI_PROFILE_MODEL)
+    response_gemini = model.generate_content(prompt, generation_config=generation_config)
+    if not response_gemini.candidates:
+        raise ValueError("Gemini returned no candidates (blocked or empty)")
+    print(
+        "Gemini profile call finish_reason="
+        f"{response_gemini.candidates[0].finish_reason}"
+    )
+    return response_gemini.text.strip()
+
+
+def generate_opt_and_initial(raw_biz_char: str):
+    """Run Prompt 1 (OptBizChar) and Prompt 2 (InitialBizSugg) in parallel."""
+    p1 = PROMPT_1_TEMPLATE.format(raw_biz_char=raw_biz_char)
+    p2 = PROMPT_2_TEMPLATE.format(raw_biz_char=raw_biz_char)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        fut_opt = executor.submit(gemini_generate_profile_text, p1)
+        fut_initial = executor.submit(gemini_generate_profile_text, p2)
+        opt_biz_char = fut_opt.result()
+        initial_biz_sugg = fut_initial.result()
+    return opt_biz_char, initial_biz_sugg
+
+
+def _utc_now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _is_profile_enriched(item):
+    """Both OptBizChar and InitialBizSugg non-empty after strip."""
+    opt = (item.get("OptBizChar") or "").strip()
+    initial = (item.get("InitialBizSugg") or "").strip()
+    return bool(opt and initial)
+
+
+def _validate_server_api_key(event_headers):
+    """Returns error response dict or None if authorized."""
+    if not server_api_key or server_api_key == "your-secret-key-here":
+        print("ERROR: server_api_key not configured in conf.py")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": "Server configuration error"}),
+            "headers": {"Content-Type": "application/json"},
+        }
+    provided = event_headers.get("x-api-key") if event_headers else None
+    if not provided or provided != server_api_key:
+        print("Invalid or missing API key")
+        return {
+            "statusCode": 403,
+            "body": json.dumps({"error": "Invalid or missing API key"}),
+            "headers": {"Content-Type": "application/json"},
+        }
+    return None
+
 
 def chatbot(event, context):
     """Original text-based chatbot - clean and simple"""
@@ -416,7 +512,7 @@ def gemini_chat(event, context):
             "temperature": 0.3,  # Lower temperature for more consistent, factual responses
         }
         
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        model = genai.GenerativeModel("gemini-2.5-flash")
         response_gemini = model.generate_content(
             prompt,
             generation_config=generation_config
@@ -509,8 +605,8 @@ def gemini_pro_chat(event, context):
             "temperature": 0.3,  # Lower temperature for more consistent, factual responses
         }
         
-        # Try Gemini 3 Pro Preview (if available)
-        model = genai.GenerativeModel('gemini-3-pro-preview')
+        # gemini-3-pro-preview was retired; use current Pro preview per Gemini API deprecations
+        model = genai.GenerativeModel("gemini-3.1-pro-preview")
         response_gemini = model.generate_content(
             prompt,
             generation_config=generation_config
@@ -553,30 +649,14 @@ def gemini_pro_chat(event, context):
     return response
 
 def add_user_profile(event, context):
-    """Add user profile to DynamoDB - Server-to-server endpoint with API key auth"""
-    print('add user profile event: ', json.dumps(event))
+    """Add user profile to DynamoDB; generate OptBizChar + InitialBizSugg via Gemini."""
+    print("add user profile event: ", json.dumps(event))
 
     event_headers = event.get("headers", None)
-    
-    # Validate Server API Key (required for this endpoint)
-    if not server_api_key or server_api_key == "your-secret-key-here":
-        print('ERROR: server_api_key not configured in conf.py')
-        return {
-            "statusCode": 500,
-            "body": json.dumps({"error": "Server configuration error"}),
-            "headers": {'Content-Type': 'application/json'}
-        }
-    
-    provided_api_key = event_headers.get("x-api-key") if event_headers else None
-    if not provided_api_key or provided_api_key != server_api_key:
-        print('Invalid or missing API key')
-        return {
-            "statusCode": 403,
-            "body": json.dumps({"error": "Invalid or missing API key"}),
-            "headers": {'Content-Type': 'application/json'}
-        }
+    auth_err = _validate_server_api_key(event_headers)
+    if auth_err:
+        return auth_err
 
-    # Parse request body
     event_body = event.get("body", None)
     if event_body is not None:
         try:
@@ -585,106 +665,251 @@ def add_user_profile(event, context):
             return {
                 "statusCode": 400,
                 "body": json.dumps({"error": "Invalid JSON in request body"}),
-                "headers": {'Content-Type': 'application/json'}
+                "headers": {"Content-Type": "application/json"},
             }
     else:
         body_data = event
 
-    # Validate required fields
-    required_fields = ['UserID', 'Mobile', 'Email', 'RawBizChar', 'OptBizChar']
-    missing_fields = [field for field in required_fields if not body_data.get(field)]
-    
+    required_fields = ["UserID", "Mobile", "Email", "RawBizChar"]
+    missing_fields = [f for f in required_fields if not body_data.get(f)]
+
     if missing_fields:
         return {
             "statusCode": 400,
-            "body": json.dumps({
-                "error": "Missing required fields",
-                "missing_fields": missing_fields
-            }),
-            "headers": {'Content-Type': 'application/json'}
+            "body": json.dumps(
+                {"error": "Missing required fields", "missing_fields": missing_fields}
+            ),
+            "headers": {"Content-Type": "application/json"},
         }
 
-    # Extract and validate fields
-    user_id = body_data.get('UserID').strip()
-    mobile = body_data.get('Mobile').strip()
-    email = body_data.get('Email').strip()
-    raw_biz_char = body_data.get('RawBizChar').strip()
-    opt_biz_char = body_data.get('OptBizChar').strip()
+    user_id = body_data.get("UserID").strip()
+    mobile = body_data.get("Mobile").strip()
+    email = body_data.get("Email").strip()
+    raw_biz_char = body_data.get("RawBizChar").strip()
 
-    # Validate email format
-    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    email_pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
     if not re.match(email_pattern, email):
         return {
             "statusCode": 400,
-            "body": json.dumps({
-                "error": "Invalid email format",
-                "field": "Email"
-            }),
-            "headers": {'Content-Type': 'application/json'}
+            "body": json.dumps({"error": "Invalid email format", "field": "Email"}),
+            "headers": {"Content-Type": "application/json"},
         }
 
-    # Validate mobile format (basic validation - must contain digits)
-    mobile_pattern = r'^[\d\s\-\+\(\)]+$'
-    if not re.match(mobile_pattern, mobile) or len(re.sub(r'\D', '', mobile)) < 9:
+    mobile_pattern = r"^[\d\s\-\+\(\)]+$"
+    if not re.match(mobile_pattern, mobile) or len(re.sub(r"\D", "", mobile)) < 9:
         return {
             "statusCode": 400,
-            "body": json.dumps({
-                "error": "Invalid mobile format - must contain at least 9 digits",
-                "field": "Mobile"
-            }),
-            "headers": {'Content-Type': 'application/json'}
+            "body": json.dumps(
+                {
+                    "error": "Invalid mobile format - must contain at least 9 digits",
+                    "field": "Mobile",
+                }
+            ),
+            "headers": {"Content-Type": "application/json"},
+        }
+
+    table_name = os.environ.get("USER_PROFILES_TABLE")
+    if not table_name:
+        print("ERROR: USER_PROFILES_TABLE environment variable not set")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": "Server configuration error"}),
+            "headers": {"Content-Type": "application/json"},
+        }
+
+    dynamodb = boto3.resource("dynamodb")
+    table = dynamodb.Table(table_name)
+
+    try:
+        table.put_item(
+            Item={
+                "UserID": user_id,
+                "Mobile": mobile,
+                "Email": email,
+                "RawBizChar": raw_biz_char,
+                "OptBizChar": "",
+            }
+        )
+        print(f"Stored raw profile for UserID: {user_id}, running Gemini enrichment")
+    except Exception as e:
+        print(f"Error storing user profile (initial write): {str(e)}")
+        import traceback
+
+        print(traceback.format_exc())
+        return {
+            "statusCode": 500,
+            "body": json.dumps(
+                {"error": "Failed to store user profile", "details": str(e)}
+            ),
+            "headers": {"Content-Type": "application/json"},
         }
 
     try:
-        # Initialize DynamoDB client
-        dynamodb = boto3.resource('dynamodb')
-        table_name = os.environ.get('USER_PROFILES_TABLE')
-        
-        if not table_name:
-            print('ERROR: USER_PROFILES_TABLE environment variable not set')
-            return {
-                "statusCode": 500,
-                "body": json.dumps({"error": "Server configuration error"}),
-                "headers": {'Content-Type': 'application/json'}
-            }
-        
-        table = dynamodb.Table(table_name)
-        
-        # Put item to DynamoDB (overwrites if exists)
-        table.put_item(
-            Item={
-                'UserID': user_id,
-                'Mobile': mobile,
-                'Email': email,
-                'RawBizChar': raw_biz_char,
-                'OptBizChar': opt_biz_char
-            }
+        opt_biz_char, initial_biz_sugg = generate_opt_and_initial(raw_biz_char)
+        generated_at = _utc_now_iso()
+        table.update_item(
+            Key={"UserID": user_id},
+            UpdateExpression=(
+                "SET OptBizChar = :o, InitialBizSugg = :i, BizCharGeneratedAt = :t"
+            ),
+            ExpressionAttributeValues={
+                ":o": opt_biz_char,
+                ":i": initial_biz_sugg,
+                ":t": generated_at,
+            },
         )
-        
-        print(f'Successfully added user profile for UserID: {user_id}')
-        
+        print(f"Enriched profile for UserID: {user_id}")
         return {
             "statusCode": 200,
-            "body": json.dumps({
-                "status": "success",
-                "message": "User profile added successfully",
-                "userId": user_id
-            }),
-            "headers": {'Content-Type': 'application/json'}
+            "body": json.dumps(
+                {
+                    "status": "success",
+                    "message": "User profile added and enriched successfully",
+                    "userId": user_id,
+                    "initialBizSugg": initial_biz_sugg,
+                    "optBizChar": opt_biz_char,
+                }
+            ),
+            "headers": {"Content-Type": "application/json"},
         }
-        
     except Exception as e:
-        print(f"Error storing user profile: {str(e)}")
+        print(f"Error during Gemini enrichment: {str(e)}")
         import traceback
-        print(f"Full traceback: {traceback.format_exc()}")
+
+        print(traceback.format_exc())
         return {
             "statusCode": 500,
-            "body": json.dumps({
-                "error": "Failed to store user profile",
-                "details": str(e)
-            }),
-            "headers": {'Content-Type': 'application/json'}
+            "body": json.dumps(
+                {
+                    "error": "Profile saved but enrichment failed",
+                    "details": str(e),
+                    "userId": user_id,
+                    "hint": "Retry with POST /backfill-user-biz-profile",
+                }
+            ),
+            "headers": {"Content-Type": "application/json"},
         }
+
+
+def backfill_user_biz_profile(event, context):
+    """Regenerate OptBizChar + InitialBizSugg from stored RawBizChar (migration / retry)."""
+    print("backfill user biz profile event: ", json.dumps(event))
+
+    event_headers = event.get("headers", None)
+    auth_err = _validate_server_api_key(event_headers)
+    if auth_err:
+        return auth_err
+
+    event_body = event.get("body", None)
+    if event_body is not None:
+        try:
+            body_data = json.loads(event_body)
+        except json.JSONDecodeError:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Invalid JSON in request body"}),
+                "headers": {"Content-Type": "application/json"},
+            }
+    else:
+        body_data = event
+
+    user_id = (body_data.get("UserID") or "").strip()
+    if not user_id:
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"error": "Missing required field", "field": "UserID"}),
+            "headers": {"Content-Type": "application/json"},
+        }
+
+    force = bool(body_data.get("force", False))
+
+    table_name = os.environ.get("USER_PROFILES_TABLE")
+    if not table_name:
+        print("ERROR: USER_PROFILES_TABLE environment variable not set")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": "Server configuration error"}),
+            "headers": {"Content-Type": "application/json"},
+        }
+
+    dynamodb = boto3.resource("dynamodb")
+    table = dynamodb.Table(table_name)
+
+    try:
+        result = table.get_item(Key={"UserID": user_id})
+        item = result.get("Item")
+        if not item:
+            return {
+                "statusCode": 404,
+                "body": json.dumps(
+                    {"error": "User profile not found", "userId": user_id}
+                ),
+                "headers": {"Content-Type": "application/json"},
+            }
+
+        raw_biz_char = (item.get("RawBizChar") or "").strip()
+        if not raw_biz_char:
+            return {
+                "statusCode": 400,
+                "body": json.dumps(
+                    {"error": "RawBizChar is missing or empty", "userId": user_id}
+                ),
+                "headers": {"Content-Type": "application/json"},
+            }
+
+        if not force and _is_profile_enriched(item):
+            return {
+                "statusCode": 200,
+                "body": json.dumps(
+                    {
+                        "status": "success",
+                        "skipped": True,
+                        "message": "Profile already enriched; pass force=true to regenerate",
+                        "userId": user_id,
+                    }
+                ),
+                "headers": {"Content-Type": "application/json"},
+            }
+
+        opt_biz_char, initial_biz_sugg = generate_opt_and_initial(raw_biz_char)
+        generated_at = _utc_now_iso()
+        table.update_item(
+            Key={"UserID": user_id},
+            UpdateExpression=(
+                "SET OptBizChar = :o, InitialBizSugg = :i, BizCharGeneratedAt = :t"
+            ),
+            ExpressionAttributeValues={
+                ":o": opt_biz_char,
+                ":i": initial_biz_sugg,
+                ":t": generated_at,
+            },
+        )
+        return {
+            "statusCode": 200,
+            "body": json.dumps(
+                {
+                    "status": "success",
+                    "skipped": False,
+                    "userId": user_id,
+                    "initialBizSugg": initial_biz_sugg,
+                    "optBizChar": opt_biz_char,
+                }
+            ),
+            "headers": {"Content-Type": "application/json"},
+        }
+    except Exception as e:
+        print(f"Error in backfill_user_biz_profile: {str(e)}")
+        import traceback
+
+        print(traceback.format_exc())
+        return {
+            "statusCode": 500,
+            "body": json.dumps(
+                {"error": "Backfill failed", "details": str(e), "userId": user_id}
+            ),
+            "headers": {"Content-Type": "application/json"},
+        }
+
 
 def get_user_profile(event, context):
     """Get user profile from DynamoDB by UserID."""
